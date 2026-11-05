@@ -10,6 +10,21 @@ Se usó en producción el 2026-11-05 con `brokers-main-prod.co_habi_brokers.brok
 2. Llena la **hoja de parámetros** (sección 0) con tu tabla, dataset y stream.
 3. Mira el caso real en **[`ejemplos/broker_activity_20261105/`](ejemplos/broker_activity_20261105/)**.
 
+## Usarlo con Claude
+
+El repo trae un skill, **`particionar-tabla-datastream`**, en `.claude/skills/`. Con él, Claude sabe qué hacer en cada fase:
+- correr el análisis de solo lectura;
+- decidir si hace falta un ensayo;
+- generar el runbook con tus parámetros;
+- **supervisar la ventana**: tú pegas los logs, él verifica en BigQuery y te da el siguiente comando;
+- resolver los errores del catálogo.
+
+- **Claude Code:** clona el repo y abre Claude Code en la carpeta. El skill y el `CLAUDE.md` se cargan solos. Pídele, por ejemplo: *"quiero particionar `mi-proyecto.mi_dataset.mi_tabla` que escribe el stream `mi-stream`"*.
+- **Otra cuenta o equipo:** copia `.claude/skills/particionar-tabla-datastream/` a `~/.claude/skills/` para tenerlo disponible fuera del repo. Igual va a necesitar el repo para leer `GUIA.md` y los scripts.
+- Pruebas del skill: `.claude/skills/particionar-tabla-datastream/evals/` (formato de `claude plugin eval`).
+
+Claude **no ejecuta cambios en producción por su cuenta**: te da los comandos, y él solo corre consultas de verificación.
+
 ## Contenido
 
 | Ruta | Qué es |
@@ -19,6 +34,8 @@ Se usó en producción el 2026-11-05 con `brokers-main-prod.co_habi_brokers.brok
 | `plantillas/rule_sets.ejemplo.json` | Plantilla para agregar la regla de partición a un stream con `gcloud --rule-sets` |
 | `terraform/` | Módulo y entorno para crear un **stream de prueba independiente** y ensayar antes de producción. Ver `terraform/README.md` |
 | `entorno/` | Arreglo para `bq` y `gcloud` cuando la red tiene IPv6 roto (Windows) |
+| `.claude/skills/particionar-tabla-datastream/` | Skill de Claude: flujo de trabajo, rol de supervisión, comandos de verificación de solo lectura y casos de prueba |
+| `CLAUDE.md` | Reglas para Claude Code en este repo |
 | `ejemplos/broker_activity_20261105/` | El caso real: la guía específica usada en producción, los resultados de la prueba y de los ensayos, las pruebas de partición y cluster, y el ensayo en `tmp` |
 
 ## Reglas que no se negocian

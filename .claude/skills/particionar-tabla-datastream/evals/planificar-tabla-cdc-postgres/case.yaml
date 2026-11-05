@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: planificar-tabla-cdc-postgres
+expected_outcome: |
+  Reconoce que es una tabla CDC con PK de origen PostgreSQL, un caso no validado, y exige un ensayo previo en un dataset de pruebas.
+  Usa la PK como llave de deduplicación, pide verificar que la tabla nueva tenga la PRIMARY KEY NOT ENFORCED y el max_staleness,
+  advierte que la pausa retiene WAL en el origen PostgreSQL, revisa el límite de 4.000 particiones por día y propone el
+  procedimiento con COPY + DROP + RENAME en lugar de renombrar la original.

@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: error-rename-streaming-en-ventana
+expected_outcome: |
+  Explica que BigQuery bloquea el RENAME de una tabla con streaming reciente y que no hay que esperar a que se libere.
+  Indica que no se cambió nada y que hay que confirmar el estado. Da la opción B: respaldo con COPY, validar la huella del respaldo,
+  DROP de la original y RENAME de broker_nueva a broker, con el plan de recuperación si el RENAME falla.
+  Advierte que no se reanuda el stream si la tabla no existe y que los permisos de tabla se pierden con el DROP.

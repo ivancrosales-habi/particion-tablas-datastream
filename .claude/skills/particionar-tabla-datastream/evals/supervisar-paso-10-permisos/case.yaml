@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: supervisar-paso-10-permisos
+expected_outcome: |
+  Responde que sí puede reanudar ya: Datastream escribe con su propia cuenta de servicio a nivel de proyecto y no necesita esos permisos de tabla.
+  Solo los dos lectores afectados esperan el acceso. Recomienda pedirle al admin el GRANT (o un READER en el dataset condicionado a la tabla),
+  da el comando de reanudación comprobando antes que la tabla existe, y propone volver a correr el script de permisos después.

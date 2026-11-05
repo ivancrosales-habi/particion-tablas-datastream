@@ -1,0 +1,27 @@
+[
+  {
+    "objectFilter": {
+      "sourceObjectIdentifier": {
+        "mysqlIdentifier": {
+          "database": "BASE_ORIGEN",
+          "table": "TABLA_ORIGEN"
+        }
+      }
+    },
+    "customizationRules": [
+      {
+        "bigqueryPartitioning": {
+          "timeUnitPartition": {
+            "column": "COL_PART",
+            "partitioningTimeGranularity": "PARTITIONING_TIME_GRANULARITY_MONTH"
+          }
+        }
+      },
+      {
+        "bigqueryClustering": {
+          "columns": ["COL_CLUSTER_1", "COL_CLUSTER_2"]
+        }
+      }
+    ]
+  }
+]

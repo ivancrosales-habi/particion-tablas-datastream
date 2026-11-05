@@ -1,0 +1,27 @@
+[
+  {
+    "objectFilter": {
+      "sourceObjectIdentifier": {
+        "mysqlIdentifier": {
+          "database": "habi_brokers",
+          "table": "broker_activity"
+        }
+      }
+    },
+    "customizationRules": [
+      {
+        "bigqueryPartitioning": {
+          "timeUnitPartition": {
+            "column": "created_at",
+            "partitioningTimeGranularity": "PARTITIONING_TIME_GRANULARITY_MONTH"
+          }
+        }
+      },
+      {
+        "bigqueryClustering": {
+          "columns": ["created_at", "broker_id"]
+        }
+      }
+    ]
+  }
+]

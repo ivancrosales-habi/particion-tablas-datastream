@@ -1,0 +1,39 @@
+# Copia este archivo como terraform.tfvars y ajusta los valores.
+# terraform.tfvars está en .gitignore: no lo subas.
+
+project_id = "brokers-main-prod"
+location   = "us-central1"
+stream_id  = "pruebapartition"
+dataset_id = "tmp"
+
+# Streams de producción que este entorno nunca debe tocar
+streams_produccion = ["habi-brokers-co", "habi-brokers-mx"]
+
+# Perfiles EXISTENTES (no se crean ni se modifican). Usa el mismo origen que el stream de producción.
+source_connection_profile      = "projects/brokers-main-prod/locations/us-central1/connectionProfiles/habi-prod-co"
+destination_connection_profile = "projects/brokers-main-prod/locations/us-central1/connectionProfiles/destino-prueba-ocd"
+
+mysql_tables = {
+  habi_brokers = ["broker_activity"]
+}
+
+# Fase 1: NOT_STARTED -> crea el stream sin leer nada.  Fase 2: RUNNING.
+desired_state = "NOT_STARTED"
+
+# none: solo actividad nueva (recomendado). all: lee toda la historia del origen.
+backfill = "none"
+
+# Igual que el stream de producción
+data_freshness = "3600s"
+write_mode     = "merge"
+
+# false para ensayar como un stream de producción sin reglas
+aplicar_reglas_particion = true
+table_rules = [
+  {
+    database        = "habi_brokers"
+    table           = "broker_activity"
+    partition       = { column = "created_at", granularity = "MONTH" }
+    cluster_columns = ["created_at", "broker_id"]
+  }
+]

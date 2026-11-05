@@ -1,0 +1,19 @@
+# Terraform: estado, planes y variables reales (pueden contener configuración de producción)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+terraform.tfvars
+
+# Salidas de los scripts (permisos, correos, configuración real)
+salida_permisos/
+salida/
+*_antes*.json
+*_antes_regla.json
+
+# Varios
+.vscode/
+.idea/
+*.log
+Thumbs.db

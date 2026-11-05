@@ -29,7 +29,7 @@ Claude **no ejecuta cambios en producción por su cuenta**: te da los comandos, 
 
 | Ruta | Qué es |
 |---|---|
-| `GUIA.md` | Guía genérica: análisis, ensayo, aprobaciones, ventana (pausar, copiar, validar, `COPY` + `DROP` + `RENAME`, reanudar), verificación, regla opcional en el stream, rollback, **catálogo de 33 errores** y registro |
+| `GUIA.md` | Guía genérica: análisis, ensayo, aprobaciones, ventana (pausar, copiar, validar, `COPY` + `DROP` + `RENAME`, reanudar), verificación, regla opcional en el stream, rollback, varias tablas en una ventana, cómo aprovechar la partición en los consumidores, **catálogo de 42 errores** y registro |
 | `scripts/verificar_permisos.ps1` | Foto de los accesos (tabla y dataset) antes del cambio y comparación después. Solo lectura. Reconoce un acceso `READER` en el dataset condicionado a la tabla como equivalente a un permiso de tabla |
 | `plantillas/rule_sets.ejemplo.json` | Plantilla para agregar la regla de partición a un stream con `gcloud --rule-sets` |
 | `terraform/` | Módulo y entorno para crear un **stream de prueba independiente** y ensayar antes de producción. Ver `terraform/README.md` |

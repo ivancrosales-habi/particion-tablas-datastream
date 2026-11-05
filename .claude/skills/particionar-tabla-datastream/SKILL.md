@@ -50,6 +50,8 @@ Corre las consultas de las secciones 2.1 a 2.9 y entrégale un **informe corto**
 - Las dependencias: vistas materializadas, políticas por fila, policy tags.
 - El stream: cuántas tablas congela la pausa, si hay backfills activos y el riesgo según el origen.
 - Si tienes los permisos necesarios (2.8).
+- **Las expiraciones por defecto del dataset** (`defaultTableExpirationMs` y `defaultPartitionExpirationMs`). La tabla nueva las hereda; si no se quitan en el paso 1b, la tabla de producción se borra sola días después, o pierde sus particiones viejas (E23 y E24). Es el riesgo más silencioso del procedimiento.
+- Si son **varias tablas del mismo stream**, propón una sola ventana (sección 5b): una pausa y una reanudación.
 - **Si el ensayo es obligatorio** (sección 3): sí, salvo una tabla append-only que venga de MySQL, que es el único caso validado.
 
 ### 3. Ensayo, si aplica (sección 3)
@@ -68,7 +70,10 @@ La persona te pega los logs y tú, en cada paso:
 Antes del paso 3 (pausa), confirma explícitamente la aprobación, la hora y quién se encarga de los permisos. Si es en horario laboral, dilo con claridad, pero la decisión es de la persona.
 
 ### 6. Después
-Paso 13 a los 15 minutos y a las 2 horas (ofrécete a correrlo). Paso 14 (T1 a T5) al día siguiente. Llena el registro (sección 12).
+- Paso 13 a los 15 minutos y a las 2 horas (ofrécete a correrlo).
+- Paso 14 (T1 a T6) al día siguiente. T6 confirma que la tabla de producción no tiene expiración.
+- Paso 15: revisa que los consumidores (por ejemplo, los modelos de dbt) filtren por la columna de partición. Si no lo hacen, la partición no ahorra nada.
+- Llena el registro (sección 12).
 
 ### 7. Versionar el caso
 Propón agregar la ejecución a `ejemplos/<TABLA>_<AAAAMMDD>/`, con lo que salió bien y mal. Si apareció un error nuevo, agrégalo al catálogo de `GUIA.md` (sección 11) con causa y solución. Así el siguiente caso empieza sabiendo más.

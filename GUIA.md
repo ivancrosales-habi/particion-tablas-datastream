@@ -85,6 +85,17 @@ bq show --format=prettyjson PROYECTO:DATASET.TABLA    # numRows, numBytes, strea
 
 📝 Anota el `max_staleness` del `ddl` en `MAX_STALENESS`.
 
+**Expiraciones por defecto del dataset [OBLIGATORIO].** Una tabla nueva **hereda** la expiración por defecto del dataset. Si no se quita, la tabla de producción se borraría sola días después del cambio de nombre, o perdería sus particiones viejas:
+```powershell
+$d = bq show --format=json PROYECTO:DATASET | Out-String | ConvertFrom-Json
+"defaultTableExpirationMs=$($d.defaultTableExpirationMs)  defaultPartitionExpirationMs=$($d.defaultPartitionExpirationMs)"
+```
+```sql
+-- Y las opciones actuales de la tabla (expiration_timestamp, partition_expiration_days, labels, description)
+SELECT option_name, option_value FROM `PROYECTO.DATASET.INFORMATION_SCHEMA.TABLE_OPTIONS` WHERE table_name = 'TABLA';
+```
+Si cualquiera de los dos valores del dataset tiene algo, el paso 1b quita la expiración heredada. Comprobado el 2026-11-05 en `tmp`, que tiene 5 días por defecto: la tabla nueva los heredó y `ALTER TABLE ... SET OPTIONS (expiration_timestamp = NULL, partition_expiration_days = NULL)` los quitó.
+
 ### 2.2 Elegir partición y cluster
 ```sql
 -- Cambia COL_PART por la columna candidata
@@ -187,6 +198,8 @@ Haz una lista de quién lee la tabla (jobs de dbt, procesos de otros proyectos, 
 
 El procedimiento está **validado en producción solo para una tabla append-only (sin PK) que viene de MySQL**. Para cualquier otro caso (PK con merge, PostgreSQL, Oracle, políticas por fila, vistas materializadas), **ensáyalo antes** con un stream de prueba:
 
+> El módulo de `terraform/` solo soporta **origen MySQL** (`mysql_source_config`). Para PostgreSQL u Oracle hay que adaptarlo (`postgresql_source_config`, `oracle_source_config` en el recurso `google_datastream_stream`) o crear el stream de prueba desde la consola de Datastream con el mismo perfil de origen.
+
 1. Copia `terraform/envs/prueba` a una carpeta nueva. Copia `terraform.tfvars.example` a `terraform.tfvars` y cambia `stream_id`, los perfiles, `mysql_tables` y `table_rules` (ver `terraform/README.md`).
 2. Fase 1, `terraform apply` con `desired_state = "NOT_STARTED"`. Fase 2, `RUNNING` con `backfill = "none"`.
 3. Repite **en `tmp`** los pasos 1 a 13 de esta guía sobre la tabla del stream de prueba.
@@ -238,6 +251,15 @@ Si a la nueva le falta la PK:
 ALTER TABLE `PROYECTO.DATASET.TABLA_nueva` ADD PRIMARY KEY (col1, col2) NOT ENFORCED;
 ```
 
+**Expiraciones heredadas [OBLIGATORIO].** La nueva **no** puede tener `expiration_timestamp` ni `partition_expiration_days`, salvo que la original los tuviera:
+```sql
+SELECT option_name, option_value FROM `PROYECTO.DATASET.INFORMATION_SCHEMA.TABLE_OPTIONS`
+WHERE table_name = 'TABLA_nueva' AND option_name IN ('expiration_timestamp', 'partition_expiration_days');
+-- Si devuelve algo (expiración heredada del dataset):
+ALTER TABLE `PROYECTO.DATASET.TABLA_nueva` SET OPTIONS (expiration_timestamp = NULL, partition_expiration_days = NULL);
+```
+🛑 Si no se quita, **la tabla de producción se borra sola** días después del cambio (error E23).
+
 ### Paso 2: accesos
 ```powershell
 .\scripts\verificar_permisos.ps1 -Fase antes -Proyecto PROYECTO -Dataset DATASET -Tabla TABLA
@@ -246,6 +268,22 @@ Si el admin aplicó el acceso condicionado por nombre (2.4), ejecuta esto y comp
 ```powershell
 .\scripts\verificar_permisos.ps1 -Fase despues -Proyecto PROYECTO -Dataset DATASET -Tabla TABLA
 ```
+
+---
+
+## 5b. Varias tablas del mismo stream
+
+Si vas a particionar **varias tablas que escribe el mismo stream**, hazlas en **una sola ventana**. Cada pausa congela todas las tablas del stream, así que conviene pausar una sola vez:
+
+1. Haz el análisis (sección 2) y los pasos 1, 1b y 2 **para cada tabla**, con su propia hoja de parámetros.
+2. En la ventana: arranque y **paso 3 (pausar) una sola vez**.
+3. Para cada tabla, en orden, los pasos **4 a 10**. Termina una antes de empezar la siguiente, y llena el registro de cada una.
+4. **Paso 11 (reanudar) una sola vez**, al final. Antes de reanudar, confirma con `bq show` que **todas** las tablas existen.
+5. Pasos 12 a 14 para cada tabla.
+
+Si una tabla falla en un punto de corte, vacía su `TABLA_nueva`, déjala como estaba y sigue con las demás o reanuda. Las que ya terminaron el paso 9 quedan bien.
+
+Con muchas tablas grandes, la pausa se alarga: los pasos 7 y 8 se suman tabla por tabla. Es mejor partirlas en varias ventanas que pasar de unas 2 horas de pausa sin el visto bueno del DBA (sección 2.6).
 
 ---
 
@@ -261,7 +299,7 @@ Si el admin aplicó el acceso condicionado por nombre (2.4), ejecuta esto y comp
 | **9** | **Respaldo con `COPY`, `DROP` de la original y `RENAME` de la nueva** | ⏸️ |
 | 10 | Verificar accesos | ⏸️ |
 | **11** | **▶️ REANUDAR** | ▶️ → RUNNING |
-| 12 | Expiración del respaldo y metadatos | ▶️ |
+| 12 | Expiración del respaldo (solo del respaldo) y metadatos | ▶️ |
 
 Tiempo real del 2026-11-05: pausa a las 16:27 y reanudación a las 17:26, con unos 25 minutos perdidos por el error de `RENAME`. Sin ese error, son unos 30 minutos.
 
@@ -326,6 +364,8 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY LLAVE ORDER BY datastream_metadata.sourc
 ```
 Con `GRAN = DAY` y más de 4.000 días, este `INSERT` falla por el límite de particiones (error E10). En ese caso, cópialo en tramos de fechas.
 
+**Costo y tiempo.** El paso 7 lee la tabla completa una vez. El paso 8 la lee dos veces más y la nueva una vez. B1 (`COPY`) no factura bytes. Para `broker_activity` (5,6 GB) fueron unos 17 GB facturados y pocos minutos en total. Para tablas grandes (cientos de GB o más), estímalo antes con un dry-run de los pasos 7 y 8, porque alarga la pausa.
+
 ### Paso 8: validar con la huella
 ```sql
 WITH o AS (
@@ -345,12 +385,17 @@ FROM `PROYECTO.DATASET.TABLA_nueva` AS n;
 ```sql
 CREATE TABLE `PROYECTO.DATASET.TABLA_respaldo_AAAAMMDD` COPY `PROYECTO.DATASET.TABLA`;
 ```
-**B1b. Validar el respaldo** (en tablas sin duplicados, la huella sin `QUALIFY` es igual a la del paso 8):
+**B1b. Validar el respaldo contra la original.** Se compara contra la original tal cual, sin deduplicar, porque en este momento las dos existen:
 ```sql
-SELECT COUNT(*) AS filas, COUNT(DISTINCT LLAVE) AS llaves, BIT_XOR(FARM_FINGERPRINT(TO_JSON_STRING(t))) AS huella
+SELECT 'original' AS tabla, COUNT(*) AS filas, BIT_XOR(FARM_FINGERPRINT(TO_JSON_STRING(t))) AS huella
+FROM `PROYECTO.DATASET.TABLA` AS t
+UNION ALL
+SELECT 'respaldo', COUNT(*), BIT_XOR(FARM_FINGERPRINT(TO_JSON_STRING(t)))
 FROM `PROYECTO.DATASET.TABLA_respaldo_AAAAMMDD` AS t;
 ```
-🛑 Tiene que coincidir con la fila `original` del paso 8. Si no, **no sigas**.
+🛑 Las dos filas tienen que ser **idénticas**. Si no, **no sigas**.
+
+Si la original no tenía repetidos (paso 5), esta huella también coincide con la del paso 8. Si tenía repetidos, no coincide, y está bien: la nueva quedó deduplicada a propósito.
 
 **B2 y B3. Borrar la original y renombrar la nueva**, las dos sentencias juntas:
 ```sql
@@ -459,9 +504,36 @@ SELECT FORMAT_TIMESTAMP('%Y-%m', TIMESTAMP(COL_PART)) AS mes, COUNT(*) AS filas 
 EXCEPT DISTINCT
 SELECT FORMAT_TIMESTAMP('%Y-%m', TIMESTAMP(COL_PART)), COUNT(*) FROM `PROYECTO.DATASET.TABLA_respaldo_AAAAMMDD` GROUP BY 1;
 ```
+```sql
+-- T6. La tabla de producción no tiene expiración (E23); solo debe aparecer require_partition_filter
+SELECT option_name, option_value FROM `PROYECTO.DATASET.INFORMATION_SCHEMA.TABLE_OPTIONS` WHERE table_name = 'TABLA';
+```
 T5, consumidores:
 - Los jobs que leen la tabla, en verde.
 - Pídele a cada lector con permiso propio que corra un `SELECT COUNT(*)`.
+
+### Paso 15: aprovechar la partición en los consumidores
+La partición solo ahorra si las consultas filtran por `COL_PART`. Revisa los modelos y procesos que leen la tabla:
+
+| Filtro | ¿Poda? (medido en `broker_activity`) |
+|---|---|
+| `COL_PART >= TIMESTAMP('2026-10-01')` (constante) | ✅ |
+| `COL_PART >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)` | ✅ |
+| `COL_PART >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH)` | ✅ |
+| `DATE(COL_PART, 'America/Bogota') >= '2026-10-01'` | ✅ |
+| `COL_PART >= (SELECT ... FROM otra_tabla)` | ✅ En la ejecución, pero el dry-run no lo muestra, y la subconsulta se factura aparte |
+| `datastream_metadata.source_timestamp >= ...` | ❌ **No poda:** lee más que no filtrar |
+
+En dbt, un modelo incremental sobre esta fuente debe filtrar por `COL_PART`, no por la marca de tiempo de CDC. Por ejemplo:
+```sql
+{% if is_incremental() %}
+WHERE COL_PART >= TIMESTAMP_TRUNC(TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY), MONTH)
+{% endif %}
+```
+Mide antes y después con dry-run, o con `total_bytes_processed` en `INFORMATION_SCHEMA.JOBS`.
+
+### Paso 16: versionar la ejecución
+Guarda el registro (sección 12) y lo que salió distinto en `ejemplos/<TABLA>_<AAAAMMDD>/` de este repo. Si apareció un error que no está en la sección 11, agrégalo con su causa y su solución. Cambia los correos personales por roles, y no subas estados de Terraform, fotos de permisos ni configuraciones exportadas.
 
 ---
 
@@ -534,6 +606,9 @@ gcloud.cmd datastream streams update STREAM --location=REGION --project=PROYECTO
 | **E20** | `Access Denied: ... bigquery.tables.setIamPolicy` | El `GRANT` no lo puede hacer quien ejecuta | Lo hace el admin (2.4) |
 | **E21** | `Access Denied: ... INFORMATION_SCHEMA.ROW_ACCESS_POLICIES` (2.5) | Falta `bigquery.rowAccessPolicies.list`. Pasó el 2026-11-05 en `co_habi_brokers` | El admin confirma si la tabla tiene políticas por fila. Si las tiene, el `DROP` las borra y hay que recrearlas en la nueva: ensayo obligatorio (sección 3) |
 | **E22** | `Access Denied` en `CREATE TABLE`, `INSERT`, `COPY`, `DROP` o `ALTER TABLE` | Faltan `bigquery.tables.create`, `updateData`, `delete` o `update` sobre el dataset | Revísalo **antes** de la ventana con `testIamPermissions` (sección 2), o pídele al admin que haga esos pasos |
+| **E23** | La tabla de producción tiene `expiration_timestamp` después del cambio, o desaparece días después | La nueva heredó la expiración por defecto del dataset (`defaultTableExpirationMs`). Comprobado en `tmp` (5 días) | **Urgente:** `ALTER TABLE \`PROYECTO.DATASET.TABLA\` SET OPTIONS (expiration_timestamp = NULL)`. Si ya se borró: time travel (E4). Evítalo con el paso 1b |
+| **E24** | Desaparecen las particiones viejas de la tabla | La nueva heredó `defaultPartitionExpirationMs` del dataset (`partition_expiration_days`) | `ALTER TABLE ... SET OPTIONS (partition_expiration_days = NULL)` y recupera lo borrado desde el respaldo, filtrando por `COL_PART` y deduplicando por `LLAVE`. Evítalo con el paso 1b |
+| **E25** | Los pasos 7 u 8 tardan mucho o facturan mucho | Tabla muy grande (lectura completa varias veces) | Estímalo antes con un dry-run (paso 7). Si alarga demasiado la pausa, hazlo en otra ventana o con la tabla sola (sección 5b) |
 
 ### Datastream
 
@@ -576,6 +651,7 @@ gcloud.cmd datastream streams update STREAM --location=REGION --project=PROYECTO
 | Paso 5: filas / llaves | |
 | Paso 8: huella (original = nueva) | |
 | B1b: huella del respaldo | |
+| Paso 1b: ¿la nueva heredó una expiración? ¿Se quitó? | |
 | Hora de B2 y B3 | |
 | Paso 10: accesos (OK / qué faltó / cómo se resolvió) | |
 | Hora de la reanudación / `RUNNING` | |

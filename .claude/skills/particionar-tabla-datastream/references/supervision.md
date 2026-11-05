@@ -98,6 +98,17 @@ SELECT (SELECT COUNT(*) FROM p) AS ids_a, (SELECT COUNT(*) FROM t) AS ids_b,
 bq get-iam-policy --format=prettyjson PROYECTO:DATASET.TABLA
 ```
 
+## Expiraciones heredadas (paso 1b, arranque y T6)
+```powershell
+$d = bq show --format=json PROYECTO:DATASET | Out-String | ConvertFrom-Json
+"defaultTableExpirationMs=$($d.defaultTableExpirationMs)  defaultPartitionExpirationMs=$($d.defaultPartitionExpirationMs)"
+```
+```sql
+-- TABLA_nueva (antes) o TABLA (después) NO deben tener expiration_timestamp ni partition_expiration_days
+SELECT table_name, option_name, option_value FROM `PROYECTO.DATASET.INFORMATION_SCHEMA.TABLE_OPTIONS`
+WHERE table_name IN ('TABLA', 'TABLA_nueva') AND option_name IN ('expiration_timestamp', 'partition_expiration_days');
+```
+
 ## Expiración del respaldo (paso 12)
 ```sql
 SELECT table_name, option_value FROM `PROYECTO.DATASET.INFORMATION_SCHEMA.TABLE_OPTIONS`
